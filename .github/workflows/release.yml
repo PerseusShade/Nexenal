@@ -1,0 +1,31 @@
+name: Build and Release Nexenal
+
+on:
+    push:
+        tags:
+            - 'v*'
+
+jobs:
+    build-installer:
+        runs-on: windows-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Build Rust binary
+              run: cargo build --release
+
+            - name: Compile Inno Setup Installer
+              run: iscc scripts\nexenal.iss
+
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@v1
+              with:
+                  files: Output/Nexenal_Installer.exe
+                  generate_release_notes: true
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

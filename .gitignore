@@ -1,0 +1,8 @@
+/target/
+
+/Output/
+
+.vscode/
+.idea/
+*.rs.bk
+*.pdb

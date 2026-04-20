@@ -1,0 +1,19 @@
+{
+    "global": {
+        "ignore": [
+            ".vscode",
+            ".vercel",
+            "venv",
+            "env",
+            "dist",
+            ".idea",
+            ".next"
+        ]
+    },
+    "tree": {
+        "default_output": "tree.txt"
+    },
+    "all": {
+        "default_output": "merged_code.txt"
+    }
+}
