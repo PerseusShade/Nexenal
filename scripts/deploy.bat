@@ -37,7 +37,7 @@ if /I "%ACTION%"=="setup" (
     )
     %ISCC_PATH% scripts\nexenal.iss
     echo.
-    echo [INFO] BAM ! Installer generated in Output\ directory!
+    echo [INFO]       Installer generated in Output\ directory!
     echo ==========================================
     exit /b 0
 )
@@ -59,6 +59,6 @@ if not exist "%TARGET_DIR%\config.json" (
 )
 
 echo ==========================================
-echo BAM ! Local Deployment successful.
+echo       Local Deployment successful.
 echo ==========================================
 pause
