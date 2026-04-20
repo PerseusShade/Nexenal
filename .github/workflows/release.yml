@@ -5,6 +5,9 @@ on:
         tags:
             - 'v*'
 
+env:
+    FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
     build-installer:
         runs-on: windows-latest
@@ -25,7 +28,7 @@ jobs:
             - name: Create GitHub Release
               uses: softprops/action-gh-release@v1
               with:
-                  files: Output/Nexenal_Installer.exe
+                  files: Output/Nexenal_Installer_v*.exe
                   generate_release_notes: true
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
