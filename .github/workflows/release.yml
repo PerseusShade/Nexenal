@@ -5,12 +5,11 @@ on:
         tags:
             - 'v*'
 
-env:
-    FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
     build-installer:
         runs-on: windows-latest
+        permissions:
+            contents: write
 
         steps:
             - name: Checkout repository
@@ -25,10 +24,11 @@ jobs:
             - name: Compile Inno Setup Installer
               run: iscc scripts\nexenal.iss
 
+            - name: Verify Output Directory
+              run: dir Output\
+
             - name: Create GitHub Release
-              uses: softprops/action-gh-release@v1
+              uses: softprops/action-gh-release@v2
               with:
-                  files: Output/Nexenal_Installer_v*.exe
+                  files: Output/*.exe
                   generate_release_notes: true
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
