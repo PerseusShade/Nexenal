@@ -9,7 +9,7 @@ use self_update::backends::github::Update;
 
 #[derive(Parser)]
 #[command(name = "nexenal")]
-#[command(version = "1.0")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "The ultimate developer arsenal", long_about = None)]
 struct Cli {
     #[command(subcommand)]
