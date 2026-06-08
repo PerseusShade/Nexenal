@@ -229,7 +229,7 @@ fn run_all(dir_path: &Path, target_ext: &str, out_file: &mut File, ignore_dirs: 
 
         if path.is_dir() {
             run_all(&path, target_ext, out_file, ignore_dirs, base_path)?;
-        } else if name.ends_with(&format!(".{}", target_ext)) {
+        } else if target_ext == "*" || name.ends_with(&format!(".{}", target_ext)) {
             let relative_path = path.strip_prefix(base_path).unwrap_or(&path);
 
             writeln!(out_file, "{} :\n", relative_path.display())?;
@@ -294,7 +294,11 @@ fn main() -> io::Result<()> {
                 clean_scan_path = clean_scan_path.replacen(r"\\?\", "", 1);
             }
 
-            println!("Nexenal [All] gathering '.{}' files from {}...", ext, clean_scan_path);
+            if ext == "*" {
+                println!("Nexenal [All] gathering ALL files from {}...", clean_scan_path);
+            } else {
+                println!("Nexenal [All] gathering '.{}' files from {}...", ext, clean_scan_path);
+            }
             run_all(root, &ext, &mut file, &final_ignores, root)?;
 
             println!("Success! Code merged into '{}'.", final_output);

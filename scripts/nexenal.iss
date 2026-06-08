@@ -1,4 +1,4 @@
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.1"
 
 [Setup]
 AppName=Nexenal
@@ -7,7 +7,6 @@ AppPublisher=PerseusShade
 DefaultDirName=C:\UserApps\Nexenal
 DefaultGroupName=Nexenal
 OutputDir=..\Output
-; Utilisation de la macro pour le nom du fichier final
 OutputBaseFilename=Nexenal_Installer_v{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
@@ -16,7 +15,6 @@ DirExistsWarning=no
 
 [Files]
 Source: "..\target\release\nexenal.exe"; DestDir: "{app}"; Flags: ignoreversion
-; On utilise onlyifdoesntexist pour protéger la configuration de l'utilisateur lors d'une MAJ
 Source: "..\assets\config.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE.md"; DestDir: "{app}"; Flags: ignoreversion

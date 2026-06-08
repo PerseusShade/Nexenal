@@ -7,7 +7,6 @@ cd /d "%~dp0\.."
 
 set TARGET_DIR=C:\UserApps\Nexenal
 set ACTION=%1
-:: Use your exact Inno Setup path
 set ISCC_PATH="C:\UserApps\Inno Setup 6\ISCC.exe"
 
 echo [1/4] Compiling with release optimizations...
