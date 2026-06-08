@@ -24,6 +24,11 @@ jobs:
             - name: Compile Inno Setup Installer
               run: iscc scripts\nexenal.iss
 
+            - name: Prepare auto-update binary
+              run: |
+                  cd target/release
+                  Compress-Archive -Path nexenal.exe -DestinationPath nexenal-x86_64-pc-windows-msvc.zip
+
             - name: Verify Output Directory
               run: dir Output\
 
@@ -32,5 +37,5 @@ jobs:
               with:
                   files: |
                       Output/*.exe
-                      target/release/nexenal.exe
+                      target/release/nexenal-x86_64-pc-windows-msvc.zip
                   generate_release_notes: true
