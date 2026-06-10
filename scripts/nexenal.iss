@@ -1,10 +1,10 @@
-#define CargoToml GetEnv("CARGO_MANIFEST_DIR") + "\..\Cargo.toml"
+#define CargoToml SourcePath + "\..\Cargo.toml"
 
 #ifExist CargoToml
     #define MyAppVersion ReadIni(CargoToml, "package", "version", "")
     #define MyAppVersion RemoveQuotes(MyAppVersion)
 #else
-    #error "[ERROR] Cargo.toml not found! Make sure CARGO_MANIFEST_DIR is correctly set."
+    #error "[ERROR] Cargo.toml not found! Check your file path configuration."
 #endif
 
 #if MyAppVersion == ""

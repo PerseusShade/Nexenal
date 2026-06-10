@@ -34,10 +34,7 @@ if /I "%ACTION%"=="setup" (
         pause
         exit /b 1
     )
-    setlocal
-    set CARGO_MANIFEST_DIR=%~dp0\..
     "%ISCC_PATH%" scripts\nexenal.iss
-    endlocal
     echo.
     echo [INFO]        Installer generated in Output\ directory!
     echo ==========================================
