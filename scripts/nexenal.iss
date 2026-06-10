@@ -1,4 +1,15 @@
-#define MyAppVersion "1.0.0"
+#define CargoToml GetEnv("CARGO_MANIFEST_DIR") + "\..\Cargo.toml"
+
+#ifExist CargoToml
+    #define MyAppVersion ReadIni(CargoToml, "package", "version", "")
+    #define MyAppVersion RemoveQuotes(MyAppVersion)
+#else
+    #error "[ERROR] Cargo.toml not found! Make sure CARGO_MANIFEST_DIR is correctly set."
+#endif
+
+#if MyAppVersion == ""
+    #error "[ERROR] Failed to read version from Cargo.toml. Check your file structure."
+#endif
 
 [Setup]
 AppName=Nexenal

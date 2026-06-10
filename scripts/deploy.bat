@@ -29,14 +29,17 @@ if /I "%ACTION%"=="build" (
 if /I "%ACTION%"=="setup" (
     echo.
     echo [2/4] Generating Inno Setup Installer...
-    if not exist %ISCC_PATH% (
+    if not exist "%ISCC_PATH%" (
         echo [ERROR] Inno Setup compiler not found at %ISCC_PATH%
         pause
         exit /b 1
     )
-    %ISCC_PATH% scripts\nexenal.iss
+    setlocal
+    set CARGO_MANIFEST_DIR=%~dp0\..
+    "%ISCC_PATH%" scripts\nexenal.iss
+    endlocal
     echo.
-    echo [INFO]       Installer generated in Output\ directory!
+    echo [INFO]        Installer generated in Output\ directory!
     echo ==========================================
     exit /b 0
 )

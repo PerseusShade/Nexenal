@@ -22,7 +22,9 @@ jobs:
               run: cargo build --release
 
             - name: Compile Inno Setup Installer
-              run: iscc scripts\nexenal.iss
+              run: |
+                  $env:CARGO_MANIFEST_DIR = Get-Location
+                  iscc scripts\nexenal.iss
 
             - name: Prepare auto-update binary
               run: |

@@ -37,6 +37,11 @@ enum Commands {
         #[arg(short, long)]
         ignore: Vec<String>,
     },
+    /// Cleans generated files (tree, all, or everything)
+    Clean {
+        /// Target to clean: 'tree', 'all', or '*'
+        target: String,
+    },
     /// Manage Nexenal configuration (JSON)
     Config {
         #[command(subcommand)]
@@ -106,11 +111,43 @@ fn get_asset_path(filename: &str) -> PathBuf {
 fn load_config() -> Config {
     let config_file = get_asset_path("config.json");
 
+    if !config_file.exists() {
+        println!("[WARNING] config.json is missing!");
+        print!("Would you like to repair it with the latest default settings? [Y/n]: ");
+        let mut response = String::new();
+        let _ = io::stdout().flush();
+        if io::stdin().read_line(&mut response).is_ok() {
+            let response = response.trim().to_lowercase();
+            if response.is_empty() || response == "y" || response == "yes" {
+                let default_config = Config::default();
+                if save_config(&default_config).is_ok() {
+                    println!("[SUCCESS] config.json has been recreated cleanly.");
+                    return default_config;
+                }
+            }
+        }
+        println!("[INFO] Running with temporary in-memory default configuration.");
+        return Config::default();
+    }
+
     if let Ok(content) = fs::read_to_string(&config_file) {
         if let Ok(config) = serde_json::from_str::<Config>(&content) {
             return config;
         } else {
-            eprintln!("[WARNING] Failed to parse config.json. Using default settings.");
+            eprintln!("[ERROR] config.json is corrupted!");
+            print!("Would you like to overwrite and fix it with defaults? [Y/n]: ");
+            let mut response = String::new();
+            let _ = io::stdout().flush();
+            if io::stdin().read_line(&mut response).is_ok() {
+                let response = response.trim().to_lowercase();
+                if response.is_empty() || response == "y" || response == "yes" {
+                    let default_config = Config::default();
+                    if save_config(&default_config).is_ok() {
+                        println!("[SUCCESS] config.json has been repaired.");
+                        return default_config;
+                    }
+                }
+            }
         }
     }
     Config::default()
@@ -254,7 +291,13 @@ fn main() -> io::Result<()> {
     match cli.command {
         Some(Commands::Tree { dir, output, ignore }) => {
             let root = Path::new(&dir);
-            let final_output = output.unwrap_or(config.tree.default_output);
+            let final_output = output.unwrap_or_else(|| {
+                if config.tree.default_output.is_empty() {
+                    "struct.txt".to_string()
+                } else {
+                    config.tree.default_output.clone()
+                }
+            });
 
             let mut final_ignores = base_ignores.clone();
             final_ignores.extend(ignore);
@@ -281,10 +324,21 @@ fn main() -> io::Result<()> {
 
         Some(Commands::All { ext, dir, output, ignore }) => {
             let root = Path::new(&dir);
-            let final_output = output.unwrap_or(config.all.default_output);
+            let final_output = output.unwrap_or_else(|| {
+                if config.all.default_output.is_empty() {
+                    "merged_code.txt".to_string()
+                } else {
+                    config.all.default_output.clone()
+                }
+            });
 
             let mut final_ignores = base_ignores.clone();
             final_ignores.extend(ignore);
+
+            final_ignores.push(final_output.clone());
+            final_ignores.push(config.all.default_output.clone());
+            final_ignores.push("merged_code.txt".to_string());
+            final_ignores.dedup();
 
             let mut file = File::create(&final_output)?;
 
@@ -299,9 +353,44 @@ fn main() -> io::Result<()> {
             } else {
                 println!("Nexenal [All] gathering '.{}' files from {}...", ext, clean_scan_path);
             }
+
             run_all(root, &ext, &mut file, &final_ignores, root)?;
 
             println!("Success! Code merged into '{}'.", final_output);
+        }
+
+        Some(Commands::Clean { target }) => {
+            let mut cleaned_any = false;
+
+            if target == "tree" || target == "*" {
+                let targets = vec![config.tree.default_output.clone(), "struct.txt".to_string(), "tree.txt".to_string()];
+                for t in targets {
+                    let path = Path::new(&t);
+                    if path.exists() {
+                        fs::remove_file(path)?;
+                        println!("Cleaned: Removed '{}'", t);
+                        cleaned_any = true;
+                    }
+                }
+            }
+
+            if target == "all" || target == "*" {
+                let targets = vec![config.all.default_output.clone(), "merged_code.txt".to_string()];
+                for t in targets {
+                    let path = Path::new(&t);
+                    if path.exists() {
+                        fs::remove_file(path)?;
+                        println!("Cleaned: Removed '{}'", t);
+                        cleaned_any = true;
+                    }
+                }
+            }
+
+            if !cleaned_any {
+                println!("Nothing to clean for target '{}'.", target);
+            } else {
+                println!("Success! Cleanup completed.");
+            }
         }
 
         Some(Commands::Config { action }) => {
