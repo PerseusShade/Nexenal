@@ -1,14 +1,13 @@
-#define CargoToml SourcePath + "\..\Cargo.toml"
+#define BinaryPath SourcePath + "\..\target\release\nexenal.exe"
 
-#ifExist CargoToml
-    #define MyAppVersion ReadIni(CargoToml, "package", "version", "")
-    #define MyAppVersion RemoveQuotes(MyAppVersion)
+#ifExist BinaryPath
+    #define MyAppVersion GetStringFileInfo(BinaryPath, "ProductVersion")
 #else
-    #error "[ERROR] Cargo.toml not found! Check your file path configuration."
+    #error "[ERROR] nexenal.exe not found in target release! Build the Rust project first."
 #endif
 
 #if MyAppVersion == ""
-    #error "[ERROR] Failed to read version from Cargo.toml. Check your file structure."
+    #error "[ERROR] Failed to read version from binary metadata."
 #endif
 
 [Setup]
