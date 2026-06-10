@@ -1,14 +1,4 @@
-#define BinaryPath SourcePath + "\..\target\release\nexenal.exe"
-
-#ifExist BinaryPath
-    #define MyAppVersion GetStringFileInfo(BinaryPath, "ProductVersion")
-#else
-    #error "[ERROR] nexenal.exe not found in target release! Build the Rust project first."
-#endif
-
-#if MyAppVersion == ""
-    #error "[ERROR] Failed to read version from binary metadata."
-#endif
+#define MyAppVersion "1.0.6"
 
 [Setup]
 AppName=Nexenal
