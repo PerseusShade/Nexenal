@@ -6,6 +6,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 use self_update::backends::github::Update;
+use cli_clipboard::{ClipboardContext, ClipboardProvider};
 
 #[derive(Parser)]
 #[command(name = "nexenal")]
@@ -26,6 +27,8 @@ enum Commands {
         output: Option<String>,
         #[arg(short, long)]
         ignore: Vec<String>,
+        #[arg(short, long)]
+        clipboard: bool,
     },
     /// Merges all files with a specific extension into a single file
     All {
@@ -36,13 +39,13 @@ enum Commands {
         output: Option<String>,
         #[arg(short, long)]
         ignore: Vec<String>,
+        #[arg(short, long)]
+        clipboard: bool,
     },
     /// Cleans generated files (tree, all, or everything)
     Clean {
-        /// Target to clean: 'tree', 'all', or '*'
         target: String,
     },
-    /// Manage Nexenal configuration (JSON)
     Config {
         #[command(subcommand)]
         action: ConfigActions,
@@ -161,14 +164,7 @@ fn save_config(config: &Config) -> io::Result<()> {
 }
 
 fn get_base_ignores(config: &Config) -> Vec<String> {
-    let mut ignores = vec![
-        ".git".to_string(),
-        "__pycache__".to_string(),
-        "target".to_string(),
-        "node_modules".to_string(),
-    ];
-    ignores.extend(config.global.ignore.clone());
-    ignores
+    config.global.ignore.clone()
 }
 
 fn open_file(filename: &str) {
@@ -213,14 +209,12 @@ fn update_nexenal() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn run_tree(dir_path: &Path, prefix: &str, out: &mut String, ignore_dirs: &[String]) -> io::Result<()> {
-    let mut entries: Vec<_> = fs::read_dir(dir_path)?.filter_map(Result::ok).collect();
-
-    entries.retain(|entry| {
+fn run_tree(dir_path: &Path, prefix: &str, out: &mut String, ignore_files_or_dirs: &[String]) -> io::Result<()> {
+    let entries: Vec<_> = fs::read_dir(dir_path)?.filter_map(Result::ok).collect();
+    let mut entries: Vec<_> = entries.into_iter().filter(|entry| {
         let name = entry.file_name().to_string_lossy().to_string();
-        let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-        is_dir || !ignore_dirs.contains(&name)
-    });
+        !ignore_files_or_dirs.contains(&name)
+    }).collect();
 
     entries.sort_by(|a, b| {
         let a_is_dir = a.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
@@ -237,68 +231,64 @@ fn run_tree(dir_path: &Path, prefix: &str, out: &mut String, ignore_dirs: &[Stri
         let is_last = i == count - 1;
         let connector = if is_last { "└── " } else { "├── " };
 
-        if is_dir && ignore_dirs.contains(&name) {
-            out.push_str(&format!("{}{}{}/\n", prefix, connector, name));
-            continue;
-        }
-
         let display_name = if is_dir { format!("{}/", name) } else { name.clone() };
         out.push_str(&format!("{}{}{}\n", prefix, connector, display_name));
 
         if is_dir {
             let new_prefix = if is_last { format!("{}    ", prefix) } else { format!("{}│   ", prefix) };
-            run_tree(&path, &new_prefix, out, ignore_dirs)?;
+            run_tree(&path, &new_prefix, out, ignore_files_or_dirs)?;
         }
     }
     Ok(())
 }
 
-fn run_all(dir_path: &Path, target_ext: &str, out_file: &mut File, ignore_dirs: &[String], base_path: &Path) -> io::Result<()> {
+fn run_all(dir_path: &Path, target_ext: &str, out: &mut String, ignore_files_or_dirs: &[String], base_path: &Path) -> io::Result<()> {
     let entries: Vec<_> = fs::read_dir(dir_path)?.filter_map(Result::ok).collect();
 
     for entry in entries {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
 
-        if ignore_dirs.contains(&name) {
+        if ignore_files_or_dirs.contains(&name) {
             continue;
         }
 
         if path.is_dir() {
-            run_all(&path, target_ext, out_file, ignore_dirs, base_path)?;
-        } else if target_ext == "*" || name.ends_with(&format!(".{}", target_ext)) {
-            let relative_path = path.strip_prefix(base_path).unwrap_or(&path);
+            run_all(&path, target_ext, out, ignore_files_or_dirs, base_path)?;
+        } else {
+            let matches_ext = target_ext == "*" || name.ends_with(&format!(".{}", target_ext));
 
-            writeln!(out_file, "{} :\n", relative_path.display())?;
+            if matches_ext {
+                let relative_path = path.strip_prefix(base_path).unwrap_or(&path);
 
-            match fs::read_to_string(&path) {
-                Ok(content) => writeln!(out_file, "{}", content)?,
-                Err(e) => writeln!(out_file, "[READ ERROR: {}]", e)?,
+                out.push_str(&format!("{} :\n\n", relative_path.display()));
+
+                match fs::read_to_string(&path) {
+                    Ok(content) => out.push_str(&content),
+                    Err(e) => out.push_str(&format!("[READ ERROR: {}]", e)),
+                }
+
+                out.push_str(&format!("\n{}\n\n", "=".repeat(50)));
             }
-
-            writeln!(out_file, "\n{}\n", "=".repeat(50))?;
         }
     }
     Ok(())
 }
 
+fn copy_to_clipboard(content: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut ctx = ClipboardContext::new()?;
+    ctx.set_contents(content.to_owned())?;
+    Ok(())
+}
+
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
-
     let mut config = load_config();
     let base_ignores = get_base_ignores(&config);
 
     match cli.command {
-        Some(Commands::Tree { dir, output, ignore }) => {
+        Some(Commands::Tree { dir, output, ignore, clipboard }) => {
             let root = Path::new(&dir);
-            let final_output = output.unwrap_or_else(|| {
-                if config.tree.default_output.is_empty() {
-                    "struct.txt".to_string()
-                } else {
-                    config.tree.default_output.clone()
-                }
-            });
-
             let mut final_ignores = base_ignores.clone();
             final_ignores.extend(ignore);
 
@@ -311,20 +301,39 @@ fn main() -> io::Result<()> {
             }
 
             let root_name = abs_path.file_name().unwrap_or_default().to_string_lossy();
-
             tree_content.push_str(&format!("{}/\n", root_name));
 
             println!("Nexenal [Tree] scanning: {}", clean_scan_path);
             run_tree(root, "", &mut tree_content, &final_ignores)?;
 
-            let mut file = File::create(&final_output)?;
-            file.write_all(tree_content.as_bytes())?;
-            println!("Success! Architecture generated in '{}'.", final_output);
+            let line_count = tree_content.lines().count();
+
+            if clipboard {
+                if let Err(e) = copy_to_clipboard(&tree_content) {
+                    eprintln!("[ERROR] Failed to copy to clipboard: {}", e);
+                } else {
+                    println!("[SUCCESS] Architecture copied to clipboard! ({} lines copied)", line_count);
+                }
+            } else {
+                let final_output = output.unwrap_or_else(|| {
+                    if config.tree.default_output.is_empty() {
+                        "struct.txt".to_string()
+                    } else {
+                        config.tree.default_output.clone()
+                    }
+                });
+                let mut file = File::create(&final_output)?;
+                file.write_all(tree_content.as_bytes())?;
+                println!("Success! Architecture generated in '{}'. ({} lines)", final_output, line_count);
+            }
         }
 
-        Some(Commands::All { ext, dir, output, ignore }) => {
+        Some(Commands::All { ext, dir, output, ignore, clipboard }) => {
             let root = Path::new(&dir);
-            let final_output = output.unwrap_or_else(|| {
+            let mut final_ignores = base_ignores.clone();
+            final_ignores.extend(ignore);
+
+            let final_output = output.clone().unwrap_or_else(|| {
                 if config.all.default_output.is_empty() {
                     "merged_code.txt".to_string()
                 } else {
@@ -332,15 +341,10 @@ fn main() -> io::Result<()> {
                 }
             });
 
-            let mut final_ignores = base_ignores.clone();
-            final_ignores.extend(ignore);
-
-            final_ignores.push(final_output.clone());
+            final_ignores.push(final_output);
             final_ignores.push(config.all.default_output.clone());
             final_ignores.push("merged_code.txt".to_string());
             final_ignores.dedup();
-
-            let mut file = File::create(&final_output)?;
 
             let abs_path = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
             let mut clean_scan_path = abs_path.display().to_string();
@@ -354,9 +358,29 @@ fn main() -> io::Result<()> {
                 println!("Nexenal [All] gathering '.{}' files from {}...", ext, clean_scan_path);
             }
 
-            run_all(root, &ext, &mut file, &final_ignores, root)?;
+            let mut merged_content = String::new();
+            run_all(root, &ext, &mut merged_content, &final_ignores, root)?;
 
-            println!("Success! Code merged into '{}'.", final_output);
+            let line_count = merged_content.lines().count();
+
+            if clipboard {
+                if let Err(e) = copy_to_clipboard(&merged_content) {
+                    eprintln!("[ERROR] Failed to copy to clipboard: {}", e);
+                } else {
+                    println!("[SUCCESS] Code successfully copied to clipboard! ({} lines copied)", line_count);
+                }
+            } else {
+                let final_output_file = output.unwrap_or_else(|| {
+                    if config.all.default_output.is_empty() {
+                        "merged_code.txt".to_string()
+                    } else {
+                        config.all.default_output.clone()
+                    }
+                });
+                let mut file = File::create(&final_output_file)?;
+                file.write_all(merged_content.as_bytes())?;
+                println!("Success! Code merged into '{}'. ({} lines)", final_output_file, line_count);
+            }
         }
 
         Some(Commands::Clean { target }) => {

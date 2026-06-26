@@ -1,13 +1,22 @@
 {
     "global": {
         "ignore": [
+            "node_modules",
+            "target",
+            "__pycache__",
+            ".git",
             ".vscode",
             ".vercel",
             "venv",
             "env",
             "dist",
             ".idea",
-            ".next"
+            ".next",
+            ".dart_tool",
+            "build",
+            "Cargo.toml",
+            "config.json",
+            ".local"
         ]
     },
     "tree": {

@@ -1,6 +1,6 @@
 [package]
 name = "Nexenal"
-version = "1.0.6"
+version = "1.0.7"
 edition = "2024"
 
 [dependencies]
@@ -8,3 +8,4 @@ clap = { version = "4.6.0", features = ["derive"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 self_update = { version = "0.41.0", features = ["archive-zip", "compression-zip-deflate", "rustls"] }
+cli-clipboard = "0.4"
