@@ -79,66 +79,38 @@ struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
-            global: GlobalConfig::default(),
-            tree: TreeConfig::default(),
-            all: AllConfig::default(),
-        }
+        let default_json = include_str!("../assets/config.json");
+        serde_json::from_str(default_json).unwrap_or_else(|e| {
+            eprintln!("[ERROR] Failed to parse embedded assets/config.json: {}", e);
+            Self {
+                global: GlobalConfig::default(),
+                tree: TreeConfig {
+                    default_output: "tree.txt".to_string(),
+                },
+                all: AllConfig {
+                    default_output: "merged_code.txt".to_string(),
+                },
+            }
+        })
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 struct GlobalConfig {
     #[serde(default)]
     ignore: Vec<String>,
 }
 
-impl Default for GlobalConfig {
-    fn default() -> Self {
-        Self {
-            ignore: vec![
-                ".git/".to_string(),
-                "target/".to_string(),
-                "node_modules/".to_string(),
-                ".vscode/".to_string(),
-                ".idea/".to_string(),
-                "Output/".to_string(),
-                "*.exe".to_string(),
-                "*.pdb".to_string(),
-                "*.zip".to_string(),
-                "*.png".to_string(),
-                "*.jpg".to_string(),
-                "*.jpeg".to_string(),
-                "*.ico".to_string(),
-                "*.rs.bk".to_string(),
-                "Cargo.lock".to_string(),
-            ],
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 struct TreeConfig {
+    #[serde(default)]
     default_output: String,
-}
-impl Default for TreeConfig {
-    fn default() -> Self {
-        Self {
-            default_output: "struct.txt".to_string(),
-        }
-    }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 struct AllConfig {
+    #[serde(default)]
     default_output: String,
-}
-impl Default for AllConfig {
-    fn default() -> Self {
-        Self {
-            default_output: "merged_code.txt".to_string(),
-        }
-    }
 }
 
 struct FilterMatcher {
@@ -163,7 +135,6 @@ impl FilterMatcher {
 
             literal_ignores.push(clean_p.to_string());
 
-            // Construction de la regle glob
             let glob_str = if p.contains('*') || p.contains('/') {
                 p.to_string()
             } else {
@@ -598,7 +569,7 @@ fn main() -> io::Result<()> {
             ConfigActions::Reset => {
                 let default_cfg = Config::default();
                 if save_config(&default_cfg).is_ok() {
-                    println!("[SUCCESS] Configuration reset to default settings.");
+                    println!("[SUCCESS] Configuration reset to embedded default assets/config.json settings.");
                 } else {
                     eprintln!("[ERROR] Failed to write default config file.");
                 }
