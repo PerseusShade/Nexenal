@@ -1,369 +1,38 @@
-use clap::{CommandFactory, Parser, Subcommand};
-use cli_clipboard::{ClipboardContext, ClipboardProvider};
-use globset::{Glob, GlobSet, GlobSetBuilder};
-use self_update::backends::github::Update;
-use serde::{Deserialize, Serialize};
+mod cli;
+mod commands;
+mod config;
+mod matcher;
+mod updater;
+
+use clap::{CommandFactory, Parser};
+use cli::{Cli, Commands, ConfigActions};
+use config::{fetch_online_default_config, load_config, save_config};
 use std::env;
-use std::fs::{self, File};
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-use std::process::Command as SysCommand;
-
-#[derive(Parser)]
-#[command(name = "nexenal")]
-#[command(version = env!("CARGO_PKG_VERSION"))]
-#[command(about = "The ultimate developer arsenal", long_about = None)]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Commands>,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Generates a visual tree of your project architecture
-    Tree {
-        #[arg(short, long, default_value = ".")]
-        dir: String,
-        #[arg(short, long)]
-        output: Option<String>,
-        #[arg(short, long)]
-        ignore: Vec<String>,
-        #[arg(short, long)]
-        clipboard: bool,
-    },
-    /// Merges all files with a specific extension into a single file
-    All {
-        ext: String,
-        #[arg(short, long, default_value = ".")]
-        dir: String,
-        #[arg(short, long)]
-        output: Option<String>,
-        #[arg(short, long)]
-        ignore: Vec<String>,
-        #[arg(short, long)]
-        clipboard: bool,
-    },
-    /// Cleans generated files (tree, all, or everything)
-    Clean { target: String },
-    Config {
-        #[command(subcommand)]
-        action: ConfigActions,
-    },
-    /// Updates Nexenal to the latest version from GitHub
-    Update,
-    /// Opens the official documentation (README.md)
-    Docs,
-    /// Opens the software license (LICENSE.md)
-    License,
-}
-
-#[derive(Subcommand)]
-enum ConfigActions {
-    View,
-    Edit,
-    Ignore { folder: String },
-    Unignore { folder: String },
-    Reset,
-    Update,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct Config {
-    #[serde(default)]
-    global: GlobalConfig,
-    #[serde(default)]
-    tree: TreeConfig,
-    #[serde(default)]
-    all: AllConfig,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        let default_json = include_str!("../assets/config.json");
-        serde_json::from_str(default_json).unwrap_or_else(|e| {
-            eprintln!("[ERROR] Failed to parse embedded assets/config.json: {}", e);
-            Self {
-                global: GlobalConfig::default(),
-                tree: TreeConfig {
-                    default_output: "tree.txt".to_string(),
-                },
-                all: AllConfig {
-                    default_output: "merged_code.txt".to_string(),
-                },
-            }
-        })
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-struct GlobalConfig {
-    #[serde(default)]
-    ignore: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-struct TreeConfig {
-    #[serde(default)]
-    default_output: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-struct AllConfig {
-    #[serde(default)]
-    default_output: String,
-}
-
-struct FilterMatcher {
-    glob_set: GlobSet,
-    literal_ignores: Vec<String>,
-}
-
-impl FilterMatcher {
-    fn new(config_ignores: &[String], extra_ignores: &[String]) -> Self {
-        let mut builder = GlobSetBuilder::new();
-        let mut literal_ignores = Vec::new();
-
-        let all_patterns = config_ignores.iter().chain(extra_ignores.iter());
-
-        for pattern in all_patterns {
-            let p = pattern.trim();
-            if p.is_empty() || p.starts_with("//") {
-                continue;
-            }
-
-            let clean_p = p.trim_end_matches('/');
-
-            literal_ignores.push(clean_p.to_string());
-
-            let glob_str = if p.contains('*') || p.contains('/') {
-                p.to_string()
-            } else {
-                format!("**/{clean_p}/**")
-            };
-
-            if let Ok(glob) = Glob::new(&glob_str) {
-                builder.add(glob);
-            }
-            if let Ok(glob) = Glob::new(clean_p) {
-                builder.add(glob);
-            }
-        }
-
-        Self {
-            glob_set: builder.build().unwrap_or_default(),
-            literal_ignores,
-        }
-    }
-
-    fn should_ignore(&self, path: &Path) -> bool {
-        let relative_path_str = path.to_string_lossy().replace('\\', "/");
-        let name = path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-
-        if self.literal_ignores.iter().any(|lit| lit == &name || lit == &relative_path_str) {
-            return true;
-        }
-
-        self.glob_set.is_match(path) || self.glob_set.is_match(&relative_path_str)
-    }
-}
-
-fn get_asset_path(filename: &str) -> PathBuf {
-    if let Ok(mut exe_path) = env::current_exe() {
-        exe_path.pop();
-        exe_path.push(filename);
-        return exe_path;
-    }
-    PathBuf::from(filename)
-}
-
-fn load_config() -> Config {
-    let config_file = get_asset_path("config.json");
-
-    if !config_file.exists() {
-        return Config::default();
-    }
-
-    if let Ok(content) = fs::read_to_string(&config_file) {
-        if let Ok(config) = serde_json::from_str::<Config>(&content) {
-            return config;
-        }
-    }
-    Config::default()
-}
-
-fn save_config(config: &Config) -> io::Result<()> {
-    let config_file = get_asset_path("config.json");
-    let content = serde_json::to_string_pretty(config)?;
-    fs::write(config_file, content)?;
-    Ok(())
-}
-
-fn fetch_online_default_config() -> Result<Config, Box<dyn std::error::Error>> {
-    let url = "https://raw.githubusercontent.com/PerseusShade/Nexenal/main/assets/config.json";
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("Nexenal-App")
-        .build()?;
-    let res = client.get(url).send()?;
-
-    if res.status().is_success() {
-        let online_config = res.json::<Config>()?;
-        Ok(online_config)
-    } else {
-        Err(format!("HTTP Error {}", res.status()).into())
-    }
-}
-
-fn open_file(filename: &str) {
-    let path = get_asset_path(filename);
-
-    if !path.exists() {
-        eprintln!(
-            "[ERROR] File '{}' not found. Ensure it was deployed correctly.",
-            filename
-        );
-        return;
-    }
-
-    println!("Opening {}...", filename);
-    let _ = SysCommand::new("cmd")
-        .arg("/C")
-        .arg("start")
-        .arg("")
-        .arg(&path)
-        .spawn();
-}
-
-fn update_nexenal() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Checking for updates on GitHub...");
-
-    let status = Update::configure()
-        .repo_owner("PerseusShade")
-        .repo_name("Nexenal")
-        .bin_name("nexenal.exe")
-        .show_download_progress(true)
-        .current_version(env!("CARGO_PKG_VERSION"))
-        .build()?
-        .update()?;
-
-    if status.updated() {
-        println!(
-            "Success! Nexenal has been updated to version {}.",
-            status.version()
-        );
-    } else {
-        println!(
-            "Nexenal is already up to date (v{}).",
-            env!("CARGO_PKG_VERSION")
-        );
-    }
-
-    Ok(())
-}
-
-fn run_tree(
-    dir_path: &Path,
-    prefix: &str,
-    out: &mut String,
-    matcher: &FilterMatcher,
-) -> io::Result<()> {
-    let entries: Vec<_> = fs::read_dir(dir_path)?.filter_map(Result::ok).collect();
-    let mut entries: Vec<_> = entries
-        .into_iter()
-        .filter(|entry| !matcher.should_ignore(&entry.path()))
-        .collect();
-
-    entries.sort_by(|a, b| {
-        let a_is_dir = a.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-        let b_is_dir = b.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-        b_is_dir
-            .cmp(&a_is_dir)
-            .then(a.file_name().cmp(&b.file_name()))
-    });
-
-    let count = entries.len();
-
-    for (i, entry) in entries.iter().enumerate() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-        let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-        let is_last = i == count - 1;
-        let connector = if is_last { "└── " } else { "├── " };
-
-        let display_name = if is_dir {
-            format!("{}/", name)
-        } else {
-            name.clone()
-        };
-        out.push_str(&format!("{}{}{}\n", prefix, connector, display_name));
-
-        if is_dir {
-            let new_prefix = if is_last {
-                format!("{}    ", prefix)
-            } else {
-                format!("{}│   ", prefix)
-            };
-            run_tree(&path, &new_prefix, out, matcher)?;
-        }
-    }
-    Ok(())
-}
-
-fn run_all(
-    dir_path: &Path,
-    target_ext: &str,
-    out: &mut String,
-    matcher: &FilterMatcher,
-    base_path: &Path,
-) -> io::Result<()> {
-    let entries: Vec<_> = fs::read_dir(dir_path)?.filter_map(Result::ok).collect();
-
-    for entry in entries {
-        let path = entry.path();
-
-        if matcher.should_ignore(&path) {
-            continue;
-        }
-
-        if path.is_dir() {
-            run_all(&path, target_ext, out, matcher, base_path)?;
-        } else {
-            let name = path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-            let matches_ext = target_ext == "*" || name.ends_with(&format!(".{}", target_ext));
-
-            if matches_ext {
-                let relative_path = path.strip_prefix(base_path).unwrap_or(&path);
-
-                out.push_str(&format!("{} :\n\n", relative_path.display()));
-
-                match fs::read_to_string(&path) {
-                    Ok(content) => out.push_str(&content),
-                    Err(e) => out.push_str(&format!("[READ ERROR: {}]", e)),
-                }
-
-                out.push_str(&format!("\n{}\n\n", "=".repeat(50)));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn copy_to_clipboard(content: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut ctx = ClipboardContext::new()?;
-    ctx.set_contents(content.to_owned())?;
-    Ok(())
-}
+use std::io;
+use updater::{open_file, update_nexenal};
 
 fn main() -> io::Result<()> {
+    let args: Vec<String> = env::args().collect();
+    let config = load_config();
+
+    if args.len() > 1 && !args[1].starts_with('-') {
+        let first_arg = &args[1];
+        let native_commands = [
+            "tree", "all", "replace", "trim", "run", "clean", "config", "update",
+            "docs", "license", "help",
+        ];
+
+        if !native_commands.contains(&first_arg.as_str())
+            && config.custom_commands.contains_key(first_arg)
+        {
+            let is_quiet = args.iter().any(|a| a == "-q" || a == "--quiet");
+            let is_dry_run = args.iter().any(|a| a == "--dry-run");
+
+            return commands::custom::execute(first_arg, is_dry_run, is_quiet, &config);
+        }
+    }
+
     let cli = Cli::parse();
-    let mut config = load_config();
 
     match cli.command {
         Some(Commands::Tree {
@@ -371,53 +40,9 @@ fn main() -> io::Result<()> {
             output,
             ignore,
             clipboard,
+            quiet,
         }) => {
-            let root = Path::new(&dir);
-            let matcher = FilterMatcher::new(&config.global.ignore, &ignore);
-
-            let mut tree_content = String::new();
-            let abs_path = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-
-            let mut clean_scan_path = abs_path.display().to_string();
-            if clean_scan_path.starts_with(r"\\?\") {
-                clean_scan_path = clean_scan_path.replacen(r"\\?\", "", 1);
-            }
-
-            let root_name = abs_path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy();
-            tree_content.push_str(&format!("{}/\n", root_name));
-
-            println!("Nexenal [Tree] scanning: {}", clean_scan_path);
-            run_tree(root, "", &mut tree_content, &matcher)?;
-
-            let line_count = tree_content.lines().count();
-
-            if clipboard {
-                if let Err(e) = copy_to_clipboard(&tree_content) {
-                    eprintln!("[ERROR] Failed to copy to clipboard: {}", e);
-                } else {
-                    println!(
-                        "[SUCCESS] Architecture copied to clipboard! ({} lines copied)",
-                        line_count
-                    );
-                }
-            } else {
-                let final_output = output.unwrap_or_else(|| {
-                    if config.tree.default_output.is_empty() {
-                        "struct.txt".to_string()
-                    } else {
-                        config.tree.default_output.clone()
-                    }
-                });
-                let mut file = File::create(&final_output)?;
-                file.write_all(tree_content.as_bytes())?;
-                println!(
-                    "Success! Architecture generated in '{}'. ({} lines)",
-                    final_output, line_count
-                );
-            }
+            commands::tree::execute(dir, output, ignore, clipboard, quiet, &config)?;
         }
 
         Some(Commands::All {
@@ -426,112 +51,48 @@ fn main() -> io::Result<()> {
             output,
             ignore,
             clipboard,
+            quiet,
         }) => {
-            let root = Path::new(&dir);
-            let mut extra_ignores = ignore.clone();
+            commands::all::execute(ext, dir, output, ignore, clipboard, quiet, &config)?;
+        }
 
-            let final_output = output.clone().unwrap_or_else(|| {
-                if config.all.default_output.is_empty() {
-                    "merged_code.txt".to_string()
-                } else {
-                    config.all.default_output.clone()
-                }
-            });
+        Some(Commands::Replace {
+            ext,
+            dir,
+            ignore,
+            ruleset,
+            rule,
+            find,
+            replace,
+            dry_run,
+            quiet,
+        }) => {
+            commands::replace::execute(
+                ext, dir, ignore, ruleset, rule, find, replace, dry_run, quiet, &config,
+            )?;
+        }
 
-            extra_ignores.push(final_output);
-            extra_ignores.push(config.all.default_output.clone());
-            extra_ignores.push("merged_code.txt".to_string());
+        Some(Commands::Trim {
+            ext,
+            dir,
+            ignore,
+            dry_run,
+            quiet,
+        }) => {
+            commands::trim::execute(ext, dir, ignore, dry_run, quiet, &config)?;
+        }
 
-            let matcher = FilterMatcher::new(&config.global.ignore, &extra_ignores);
-
-            let abs_path = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-            let mut clean_scan_path = abs_path.display().to_string();
-            if clean_scan_path.starts_with(r"\\?\") {
-                clean_scan_path = clean_scan_path.replacen(r"\\?\", "", 1);
-            }
-
-            if ext == "*" {
-                println!(
-                    "Nexenal [All] gathering ALL files from {}...",
-                    clean_scan_path
-                );
-            } else {
-                println!(
-                    "Nexenal [All] gathering '.{}' files from {}...",
-                    ext, clean_scan_path
-                );
-            }
-
-            let mut merged_content = String::new();
-            run_all(root, &ext, &mut merged_content, &matcher, root)?;
-
-            let line_count = merged_content.lines().count();
-
-            if clipboard {
-                if let Err(e) = copy_to_clipboard(&merged_content) {
-                    eprintln!("[ERROR] Failed to copy to clipboard: {}", e);
-                } else {
-                    println!(
-                        "[SUCCESS] Code successfully copied to clipboard! ({} lines copied)",
-                        line_count
-                    );
-                }
-            } else {
-                let final_output_file = output.unwrap_or_else(|| {
-                    if config.all.default_output.is_empty() {
-                        "merged_code.txt".to_string()
-                    } else {
-                        config.all.default_output.clone()
-                    }
-                });
-                let mut file = File::create(&final_output_file)?;
-                file.write_all(merged_content.as_bytes())?;
-                println!(
-                    "Success! Code merged into '{}'. ({} lines)",
-                    final_output_file, line_count
-                );
-            }
+        Some(Commands::Run {
+            command_name,
+            dry_run,
+            quiet,
+            ..
+        }) => {
+            commands::custom::execute(&command_name, dry_run, quiet, &config)?;
         }
 
         Some(Commands::Clean { target }) => {
-            let mut cleaned_any = false;
-
-            if target == "tree" || target == "*" {
-                let targets = vec![
-                    config.tree.default_output.clone(),
-                    "struct.txt".to_string(),
-                    "tree.txt".to_string(),
-                ];
-                for t in targets {
-                    let path = Path::new(&t);
-                    if path.exists() {
-                        fs::remove_file(path)?;
-                        println!("Cleaned: Removed '{}'", t);
-                        cleaned_any = true;
-                    }
-                }
-            }
-
-            if target == "all" || target == "*" {
-                let targets = vec![
-                    config.all.default_output.clone(),
-                    "merged_code.txt".to_string(),
-                ];
-                for t in targets {
-                    let path = Path::new(&t);
-                    if path.exists() {
-                        fs::remove_file(path)?;
-                        println!("Cleaned: Removed '{}'", t);
-                        cleaned_any = true;
-                    }
-                }
-            }
-
-            if !cleaned_any {
-                println!("Nothing to clean for target '{}'.", target);
-            } else {
-                println!("Success! Cleanup completed.");
-            }
+            commands::clean::execute(target, &config)?;
         }
 
         Some(Commands::Config { action }) => match action {
@@ -543,31 +104,27 @@ fn main() -> io::Result<()> {
                 open_file("config.json");
             }
             ConfigActions::Ignore { folder } => {
-                if !config.global.ignore.contains(&folder) {
-                    config.global.ignore.push(folder.clone());
-                    save_config(&config)?;
+                let mut new_config = config.clone();
+                if !new_config.global.ignore.contains(&folder) {
+                    new_config.global.ignore.push(folder.clone());
+                    save_config(&new_config)?;
                     println!("Success! Added '{}' to global ignore list.", folder);
                 } else {
-                    println!(
-                        "Info: '{}' is already in the global ignore list.",
-                        folder
-                    );
+                    println!("Info: '{}' is already in the global ignore list.", folder);
                 }
             }
             ConfigActions::Unignore { folder } => {
-                if let Some(pos) = config.global.ignore.iter().position(|x| *x == folder) {
-                    config.global.ignore.remove(pos);
-                    save_config(&config)?;
+                let mut new_config = config.clone();
+                if let Some(pos) = new_config.global.ignore.iter().position(|x| *x == folder) {
+                    new_config.global.ignore.remove(pos);
+                    save_config(&new_config)?;
                     println!("Success! Removed '{}' from global ignore list.", folder);
                 } else {
-                    println!(
-                        "Info: '{}' was not found in the global ignore list.",
-                        folder
-                    );
+                    println!("Info: '{}' was not found in the global ignore list.", folder);
                 }
             }
             ConfigActions::Reset => {
-                let default_cfg = Config::default();
+                let default_cfg = config::Config::default();
                 if save_config(&default_cfg).is_ok() {
                     println!("[SUCCESS] Configuration reset to embedded default assets/config.json settings.");
                 } else {

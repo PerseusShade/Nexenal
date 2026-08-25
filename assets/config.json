@@ -14,12 +14,10 @@
             ".vscode/",
             ".idea/",
             ".local/",
-
             "__pycache__/",
             "venv/",
             "env/",
             "*.pyc",
-
             "package-lock.json",
             "yarn.lock",
             "pnpm-lock.yaml",
@@ -27,7 +25,6 @@
             "Cargo.toml",
             "config.json",
             ".env*",
-
             "*.exe",
             "*.pdb",
             "*.dll",
@@ -36,7 +33,6 @@
             "*.zip",
             "*.tar.gz",
             "*.7z",
-
             "*.png",
             "*.jpg",
             "*.jpeg",
@@ -54,5 +50,66 @@
     },
     "all": {
         "default_output": "merged_code.txt"
+    },
+    "replace": {
+        "rules": {
+            "Weird space 1": {
+                "find": " ",
+                "replace": " ",
+                "literal": true
+            },
+            "Weird space 2": {
+                "find": " ",
+                "replace": " ",
+                "literal": true
+            },
+            "Weird space 3": {
+                "find": " ",
+                "replace": " ",
+                "literal": true
+            },
+            "Weird dash 1": {
+                "find": "‑",
+                "replace": "-",
+                "literal": true
+            },
+            "Weird dash 2": {
+                "find": "–",
+                "replace": "-",
+                "literal": true
+            },
+            "Weird dash 3": {
+                "find": "—",
+                "replace": "-",
+                "literal": true
+            },
+            "Weird apostrophe": {
+                "find": "’",
+                "replace": "'",
+                "literal": true
+            }
+        },
+        "rulesets": {
+            "weird-chars": {
+                "rules": [
+                    "Weird space 1",
+                    "Weird space 2",
+                    "Weird space 3",
+                    "Weird dash 1",
+                    "Weird dash 2",
+                    "Weird dash 3",
+                    "Weird apostrophe"
+                ]
+            }
+        }
+    },
+    "custom_commands": {
+        "purge": {
+            "description": "Nettoyage silencieux des caractères spéciaux et des espaces de fin",
+            "steps": [
+                "replace -s weird-chars -q",
+                "trim -q"
+            ]
+        }
     }
 }
