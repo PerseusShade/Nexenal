@@ -49,7 +49,15 @@ pub fn execute(
     Ok(())
 }
 
+const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
+
 fn trim_file(path: &Path, dry_run: bool) -> io::Result<usize> {
+    if let Ok(meta) = fs::metadata(path) {
+        if meta.len() > MAX_FILE_BYTES {
+            return Ok(0);
+        }
+    }
+
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
         Err(_) => return Ok(0),

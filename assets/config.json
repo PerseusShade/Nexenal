@@ -14,10 +14,31 @@
             ".vscode/",
             ".idea/",
             ".local/",
+            ".turbo/",
+            "_reference/",
+            "downloads/",
+            "output/",
             "__pycache__/",
             "venv/",
             "env/",
             "*.pyc",
+            "*.sqlite",
+            "*.db",
+            "*.pgn",
+            "*.zst",
+            "*.jsonl",
+            "*.wasm",
+            "*.bin",
+            "*.dat",
+            "*.map",
+            "*.woff",
+            "*.woff2",
+            "*.ttf",
+            "*.otf",
+            "*.eot",
+            "*.wav",
+            "*.ogg",
+            "*.webm",
             "package-lock.json",
             "yarn.lock",
             "pnpm-lock.yaml",
@@ -54,17 +75,17 @@
     "replace": {
         "rules": {
             "Weird space 1": {
-                "find": " ",
+                "find": "\u00A0",
                 "replace": " ",
                 "literal": true
             },
             "Weird space 2": {
-                "find": " ",
+                "find": "\u202F",
                 "replace": " ",
                 "literal": true
             },
             "Weird space 3": {
-                "find": " ",
+                "find": "\u2009",
                 "replace": " ",
                 "literal": true
             },

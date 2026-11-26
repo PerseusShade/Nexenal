@@ -96,21 +96,36 @@ pub fn execute(
     Ok(())
 }
 
+const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
+
 fn execute_replacements_in_file(
     path: &Path,
     rules: &[ReplaceRule],
     dry_run: bool,
 ) -> io::Result<usize> {
+    if let Ok(meta) = fs::metadata(path) {
+        if meta.len() > MAX_FILE_BYTES {
+            return Ok(0);
+        }
+    }
+
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
         Err(_) => return Ok(0),
     };
 
-    let mut modified = content.clone();
+    let has_any_match = rules
+        .iter()
+        .any(|r| r.literal && !r.find.is_empty() && r.find != r.replace && content.contains(&r.find));
+    if !has_any_match {
+        return Ok(0);
+    }
+
+    let mut modified = content;
     let mut total_replacements = 0;
 
     for rule in rules {
-        if rule.literal {
+        if rule.literal && !rule.find.is_empty() && rule.find != rule.replace {
             let count = modified.matches(&rule.find).count();
             if count > 0 {
                 total_replacements += count;
